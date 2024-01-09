@@ -15,6 +15,6 @@ python main_vicregl.py \
 --alpha 0.75 \
 --num-workers 10 \
 --exp_name "vicregl_debug" \
---data-path /zhibin/data/AIML_rot_corrected \
+--data_path /zhibin/data/AIML_rot_corrected \
 --log-tensors-interval 100 \
 --checkpoint-freq 10
