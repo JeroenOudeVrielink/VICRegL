@@ -5,6 +5,6 @@ docker run \
 -v $(pwd):/code \
 --gpus '"device=0"' \
 --mount type=bind,src=/home/zhibin,target=/zhibin \
---mount type=bind,src=/home/zhibin/data/vicregl_models,target=/vicregl_models \
+--mount type=bind,src=/home/zhibin/data,target=/data \
 --shm-size 64G \
 jvrielink/pytorch_vicregl

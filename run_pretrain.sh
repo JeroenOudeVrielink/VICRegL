@@ -1,7 +1,7 @@
 
 python main_vicregl.py \
 --fp16 \
---exp-dir /vicregl_models \
+--exp-dir /data/vicregl_models \
 --arch resnet50 \
 --epochs 400 \
 --batch-size 128 \
@@ -15,6 +15,6 @@ python main_vicregl.py \
 --alpha 0.75 \
 --num-workers 10 \
 --exp_name "vicregl_debug" \
---data_path /zhibin/data/AIML_rot_corrected \
+--data_path /data/AIML_rot_corrected \
 --log-tensors-interval 100 \
 --checkpoint-freq 10
