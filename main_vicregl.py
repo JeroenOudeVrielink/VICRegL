@@ -122,7 +122,7 @@ def init_wandb(args):
         project="AIML-SSL",
         entity="jeroenov98",
         config=args,
-        dir=args.output_dir,
+        dir=args.exp_dir,
     )
 
 

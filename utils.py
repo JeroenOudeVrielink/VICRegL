@@ -23,7 +23,8 @@ def round_log(key, log, item=True, iters=1):
 
 
 def checkpoint(args, epoch, step, model, optimizer, name=""):
-    if args.rank != 0 or epoch % args.checkpoint_freq != 0:
+    # if args.rank != 0 or epoch % args.checkpoint_freq != 0:
+    if epoch % args.checkpoint_freq != 0:
         return
     state = dict(
         epoch=epoch, model=model.state_dict(), optimizer=optimizer.state_dict()
