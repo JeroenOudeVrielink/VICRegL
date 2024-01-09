@@ -146,7 +146,7 @@ def main(args):
         dir = os.getcwd().split("/")[-1]
         print(" ".join([dir] + sys.argv))
         print(" ".join([dir] + sys.argv), file=stats_file)
-        init_wandb()
+        init_wandb(args)
 
     # args.stats_file = stats_file
 
