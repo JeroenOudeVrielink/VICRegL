@@ -16,6 +16,8 @@ import torchvision.datasets as datasets
 
 from transforms import MultiCropTrainDataTransform, MultiCropValDataTransform
 
+from aiml_dataset import AIMLDataset
+
 
 IMAGENET_NUMPY_PATH = "/private/home/abardes/datasets/imagenet1k/"
 IMAGENET_PATH = "/datasets01/imagenet_full_size/061417"
@@ -55,11 +57,12 @@ def build_loader(args, is_train=True):
     if (not is_train) and args.val_batch_size == -1:
         batch_size = args.batch_size
 
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=is_train)
+    # sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=is_train)
+    sampler = None
     per_device_batch_size = batch_size // args.world_size
     loader = torch.utils.data.DataLoader(
         dataset,
-        sampler=sampler,
+        # sampler=sampler,
         batch_size=per_device_batch_size,
         num_workers=args.num_workers,
     )
@@ -82,10 +85,15 @@ def build_dataset(args, is_train=True):
                 images_path, labels_path, transform=transform
             )
         else:
-            root = IMAGENET_PATH
-            prefix = "train" if is_train else "val"
-            path = os.path.join(root, "train")
-            dataset = datasets.ImageFolder(path, transform)
+            # root = IMAGENET_PATH
+            # prefix = "train" if is_train else "val"
+            # path = os.path.join(root, "train")
+            # dataset = datasets.ImageFolder(path, transform)
+            dataset = AIMLDataset(
+                annotations_file=args.annotations_file,
+                data_path=args.data_path,
+                transform=transform,
+            )
 
     return dataset
 

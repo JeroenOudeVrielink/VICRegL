@@ -120,7 +120,7 @@ class RandomResizedCropWithLocation(torch.nn.Module):
             tuple: params (i, j, h, w) to be passed to ``crop`` for a random
                 sized crop.
         """
-        width, height = FT._get_image_size(img)
+        width, height = FT.get_image_size(img)
         area = height * width
 
         log_ratio = torch.log(torch.tensor(ratio))
@@ -303,10 +303,11 @@ class MultiCropTrainDataTransform(object):
                     transforms.Compose(
                         [
                             get_color_distortion(left=(j % 2 == 0)),
+                            transforms.Grayscale(num_output_channels=3),
                             transforms.ToTensor(),
-                            transforms.Normalize(
-                                mean=[0.485, 0.456, 0.406], std=[0.228, 0.224, 0.225],
-                            ),
+                            # transforms.Normalize(
+                            #     mean=[0.485, 0.456, 0.406], std=[0.228, 0.224, 0.225],
+                            # ),
                         ]
                     )
                 )
@@ -348,10 +349,11 @@ class MultiCropValDataTransform(MultiCropTrainDataTransform):
             [
                 transforms.Resize(full_size, interpolation=InterpolationMode.BICUBIC),
                 transforms.CenterCrop(self.size_crops[0]),
+                transforms.Grayscale(num_output_channels=3),
                 transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.228, 0.224, 0.225]
-                ),
+                # transforms.Normalize(
+                #     mean=[0.485, 0.456, 0.406], std=[0.228, 0.224, 0.225]
+                # ),
             ]
         )
 

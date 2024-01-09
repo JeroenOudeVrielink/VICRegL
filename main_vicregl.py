@@ -25,9 +25,14 @@ from optimizers import build_optimizer
 from distributed import init_distributed_mode
 import utils
 
+import datetime
+import wandb
+
 
 def get_arguments():
-    parser = argparse.ArgumentParser(description="Pretraining with VICRegL", add_help=False)
+    parser = argparse.ArgumentParser(
+        description="Pretraining with VICRegL", add_help=False
+    )
 
     # Checkpoints and Logs
     parser.add_argument("--exp-dir", type=Path, required=True)
@@ -59,7 +64,7 @@ def get_arguments():
         default=[20, 4],
         help="Number of spatial matches in a feature map",
     )
-    parser.add_argument("--l2_all_matches", type=int, default=1)
+    parser.add_argument("--l2_all_matches", type=int, default=0)
     parser.add_argument("--inv-coeff", type=float, default=25.0)
     parser.add_argument("--var-coeff", type=float, default=25.0)
     parser.add_argument("--cov-coeff", type=float, default=1.0)
@@ -84,17 +89,41 @@ def get_arguments():
     # Running
     parser.add_argument("--fp16", action="store_true")
     parser.add_argument("--num-workers", type=int, default=10)
-    parser.add_argument('--device', default='cuda',
-                        help='device to use for training / testing')
+    parser.add_argument(
+        "--device", default="cuda", help="device to use for training / testing"
+    )
 
     # Distributed
-    parser.add_argument('--world-size', default=1, type=int,
-                        help='number of distributed processes')
-    parser.add_argument('--local_rank', default=-1, type=int)
-    parser.add_argument('--dist-url', default='env://',
-                        help='url used to set up distributed training')
+    parser.add_argument(
+        "--world-size", default=1, type=int, help="number of distributed processes"
+    )
+    parser.add_argument("--local_rank", default=-1, type=int)
+    parser.add_argument(
+        "--dist-url", default="env://", help="url used to set up distributed training"
+    )
+
+    # Own
+    parser.add_argument("--data_path", type=str, required=True)
+    parser.add_argument(
+        "--annotations_file", type=str, default="annotations/img_paths.csv"
+    )
+    parser.add_argument("--datetime", type=str, default="")
+    parser.add_argument("--exp_name", type=str, required=True)
 
     return parser
+
+
+def init_wandb(args):
+    run_name = f"{args.exp_name}_{args.datetime}"
+
+    # Create wandb logger
+    wandb.init(
+        name=run_name,
+        project="AIML-SSL",
+        entity="jeroenov98",
+        config=args,
+        dir=args.output_dir,
+    )
 
 
 def main(args):
@@ -102,16 +131,22 @@ def main(args):
     init_distributed_mode(args)
     print(args)
     gpu = torch.device(args.device)
-    
+
     # Ensures that stats_file is initialized when calling evalaute(),
     # even if only the rank 0 process will use it
     stats_file = None
-    if args.rank == 0:
+    # if args.rank == 0:
+
+    # Cheeky fix see if it works
+    if args.local_rank == -1:
+        args.datetime = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        args.exp_dir = args.exp_dir / (args.exp_name + "_" + args.datetime)
         args.exp_dir.mkdir(parents=True, exist_ok=True)
         stats_file = open(args.exp_dir / "stats.txt", "a", buffering=1)
         dir = os.getcwd().split("/")[-1]
         print(" ".join([dir] + sys.argv))
         print(" ".join([dir] + sys.argv), file=stats_file)
+        init_wandb()
 
     # args.stats_file = stats_file
 
@@ -121,8 +156,8 @@ def main(args):
 
     model = VICRegL(args).cuda(gpu)
     print(model)
-    model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu])
+    # model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    # model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu])
 
     optimizer = build_optimizer(args, model)
 
@@ -143,8 +178,9 @@ def main(args):
     start_time = last_logging = time.time()
     scaler = torch.cuda.amp.GradScaler()
     for epoch in range(start_epoch, args.epochs):
+        wandb.log({"epoch": epoch})
         model.train()
-        train_sampler.set_epoch(epoch)
+        # train_sampler.set_epoch(epoch)
         for step, inputs in enumerate(train_loader, start=epoch * len(train_loader)):
             lr = utils.learning_schedule(
                 global_step=step,
@@ -175,11 +211,17 @@ def main(args):
                 optimizer.step()
 
             # logging
-            for v in logs.values():
-                torch.distributed.reduce(v.div_(args.world_size), 0)
+            # Remove reduce loop
+            # for v in logs.values():
+            # torch.distributed.reduce(v.div_(args.world_size), 0)
             current_time = time.time()
+            # if (
+            #     args.rank == 0
+            #     and current_time - last_logging > args.log_tensors_interval
+            # ):
+            # Fix this with local rank (rank does not exists because of single GPU usage)
             if (
-                args.rank == 0
+                args.local_rank == -1
                 and current_time - last_logging > args.log_tensors_interval
             ):
                 logs = {key: utils.round_log(key, value) for key, value in logs.items()}
@@ -193,6 +235,7 @@ def main(args):
                 print(json.dumps(stats))
                 print(json.dumps(stats), file=stats_file)
                 last_logging = current_time
+                wandb.log(stats)
         utils.checkpoint(args, epoch + 1, step, model, optimizer)
 
         # evaluate
@@ -274,7 +317,9 @@ class VICRegL(nn.Module):
             raise Exception(f"Unsupported backbone {args.arch}.")
 
         if self.args.alpha < 1.0:
-            self.maps_projector = utils.MLP(args.maps_mlp, self.representation_dim, norm_layer)
+            self.maps_projector = utils.MLP(
+                args.maps_mlp, self.representation_dim, norm_layer
+            )
 
         if self.args.alpha > 0.0:
             self.projector = utils.MLP(args.mlp, self.representation_dim, norm_layer)
@@ -313,9 +358,7 @@ class VICRegL(nn.Module):
 
         return repr_loss, std_loss, cov_loss
 
-    def _local_loss(
-        self, maps_1, maps_2, location_1, location_2
-    ):
+    def _local_loss(self, maps_1, maps_2, location_1, location_2):
         inv_loss = 0.0
         var_loss = 0.0
         cov_loss = 0.0
@@ -337,8 +380,12 @@ class VICRegL(nn.Module):
             inv_loss_1 = F.mse_loss(maps_1_filtered, maps_1_nn)
             inv_loss_2 = F.mse_loss(maps_2_filtered, maps_2_nn)
         else:
-            inv_loss_1, var_loss_1, cov_loss_1 = self._vicreg_loss(maps_1_filtered, maps_1_nn)
-            inv_loss_2, var_loss_2, cov_loss_2 = self._vicreg_loss(maps_2_filtered, maps_2_nn)
+            inv_loss_1, var_loss_1, cov_loss_1 = self._vicreg_loss(
+                maps_1_filtered, maps_1_nn
+            )
+            inv_loss_2, var_loss_2, cov_loss_2 = self._vicreg_loss(
+                maps_2_filtered, maps_2_nn
+            )
             var_loss = var_loss + (var_loss_1 / 2 + var_loss_2 / 2)
             cov_loss = cov_loss + (cov_loss_1 / 2 + cov_loss_2 / 2)
 
@@ -367,8 +414,12 @@ class VICRegL(nn.Module):
             inv_loss_1 = F.mse_loss(maps_1_filtered, maps_1_nn)
             inv_loss_2 = F.mse_loss(maps_2_filtered, maps_2_nn)
         else:
-            inv_loss_1, var_loss_1, cov_loss_1 = self._vicreg_loss(maps_1_filtered, maps_1_nn)
-            inv_loss_2, var_loss_2, cov_loss_2 = self._vicreg_loss(maps_2_filtered, maps_2_nn)
+            inv_loss_1, var_loss_1, cov_loss_1 = self._vicreg_loss(
+                maps_1_filtered, maps_1_nn
+            )
+            inv_loss_2, var_loss_2, cov_loss_2 = self._vicreg_loss(
+                maps_2_filtered, maps_2_nn
+            )
             var_loss = var_loss + (var_loss_1 / 2 + var_loss_2 / 2)
             cov_loss = cov_loss + (cov_loss_1 / 2 + cov_loss_2 / 2)
 
@@ -385,7 +436,10 @@ class VICRegL(nn.Module):
         for i in range(2):
             for j in np.delete(np.arange(np.sum(num_views)), i):
                 inv_loss_this, var_loss_this, cov_loss_this = self._local_loss(
-                    maps_embedding[i], maps_embedding[j], locations[i], locations[j],
+                    maps_embedding[i],
+                    maps_embedding[j],
+                    locations[i],
+                    locations[j],
                 )
                 inv_loss = inv_loss + inv_loss_this
                 var_loss = var_loss + var_loss_this
@@ -403,7 +457,9 @@ class VICRegL(nn.Module):
                 var_loss = var_loss + torch.mean(torch.relu(1.0 - std_x))
                 x = x.permute(1, 0, 2)
                 *_, sample_size, num_channels = x.shape
-                non_diag_mask = ~torch.eye(num_channels, device=x.device, dtype=torch.bool)
+                non_diag_mask = ~torch.eye(
+                    num_channels, device=x.device, dtype=torch.bool
+                )
                 x = x - x.mean(dim=-2, keepdim=True)
                 cov_x = torch.einsum("...nc,...nd->...cd", x, x) / (sample_size - 1)
                 cov_loss = cov_x[..., non_diag_mask].pow(2).sum(-1) / num_channels
@@ -456,12 +512,16 @@ class VICRegL(nn.Module):
             x = F.normalize(x, p=2, dim=1)
             return torch.mean(x.std(dim=0))
 
-        representation = utils.batch_all_gather(outputs["representation"][0])
+        # representation = utils.batch_all_gather(outputs["representation"][0])
+        # Replace gathering of all outputs from all gpus to single output
+        representation = outputs["representation"][0]
         corr = correlation_metric(representation)
         stdrepr = std_metric(representation)
 
         if self.args.alpha > 0.0:
-            embedding = utils.batch_all_gather(outputs["embedding"][0])
+            # embedding = utils.batch_all_gather(outputs["embedding"][0])
+            # Same here
+            embedding = outputs["embedding"][0]
             core = correlation_metric(embedding)
             stdemb = std_metric(embedding)
             return dict(stdr=stdrepr, stde=stdemb, corr=corr, core=core)
@@ -486,7 +546,9 @@ class VICRegL(nn.Module):
 
             if self.args.alpha < 1.0:
                 batch_size, num_loc, _ = maps.shape
-                maps_embedding = self.maps_projector(maps.flatten(start_dim=0, end_dim=1))
+                maps_embedding = self.maps_projector(
+                    maps.flatten(start_dim=0, end_dim=1)
+                )
                 maps_embedding = maps_embedding.view(batch_size, num_loc, -1)
                 outputs["maps_embedding"].append(maps_embedding)
 
@@ -512,11 +574,15 @@ class VICRegL(nn.Module):
 
         # Global criterion
         if self.args.alpha > 0.0:
-            inv_loss, var_loss, cov_loss = self.global_loss(
-                outputs["embedding"]
-            )
+            inv_loss, var_loss, cov_loss = self.global_loss(outputs["embedding"])
             loss = loss + self.args.alpha * (inv_loss + var_loss + cov_loss)
-            logs.update(dict(inv_l=inv_loss, var_l=var_loss, cov_l=cov_loss,))
+            logs.update(
+                dict(
+                    inv_l=inv_loss,
+                    var_l=var_loss,
+                    cov_l=cov_loss,
+                )
+            )
 
         # Local criterion
         # Maps shape: B, C, H, W
@@ -526,14 +592,16 @@ class VICRegL(nn.Module):
                 maps_inv_loss,
                 maps_var_loss,
                 maps_cov_loss,
-            ) = self.local_loss(
-                outputs["maps_embedding"], inputs["locations"]
-            )
+            ) = self.local_loss(outputs["maps_embedding"], inputs["locations"])
             loss = loss + (1 - self.args.alpha) * (
                 maps_inv_loss + maps_var_loss + maps_cov_loss
             )
             logs.update(
-                dict(minv_l=maps_inv_loss, mvar_l=maps_var_loss, mcov_l=maps_cov_loss,)
+                dict(
+                    minv_l=maps_inv_loss,
+                    mvar_l=maps_var_loss,
+                    mcov_l=maps_cov_loss,
+                )
             )
 
         # Online classification
@@ -549,7 +617,11 @@ class VICRegL(nn.Module):
                 outputs["logits_val"][0], labels, topk=(1, 5)
             )
             logs.update(
-                dict(clsl_val=classif_loss_val, top1_val=acc1_val, top5_val=acc5_val,)
+                dict(
+                    clsl_val=classif_loss_val,
+                    top1_val=acc1_val,
+                    top5_val=acc5_val,
+                )
             )
 
         return loss, logs
@@ -632,6 +704,8 @@ def exclude_bias_and_norm(p):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Pretraining with VICRegL", parents=[get_arguments()])
+    parser = argparse.ArgumentParser(
+        "Pretraining with VICRegL", parents=[get_arguments()]
+    )
     args = parser.parse_args()
     main(args)

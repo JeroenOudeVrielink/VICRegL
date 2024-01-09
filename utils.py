@@ -111,7 +111,8 @@ def accuracy(output, target, topk=(1,)):
 
 
 def gather_center(x):
-    x = batch_all_gather(x)
+    # Remove batch cathering
+    # x = batch_all_gather(x)
     x = x - x.mean(dim=0)
     return x
 
