@@ -4,7 +4,7 @@ python main_vicregl.py \
 --exp-dir /data/vicregl_models \
 --arch resnet50 \
 --epochs 400 \
---batch-size 128 \
+--batch-size 256 \
 --optimizer lars \
 --base-lr 0.3 \
 --weight-decay 1e-06 \

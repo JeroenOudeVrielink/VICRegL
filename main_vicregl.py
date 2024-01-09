@@ -178,6 +178,7 @@ def main(args):
     start_time = last_logging = time.time()
     scaler = torch.cuda.amp.GradScaler()
     for epoch in range(start_epoch, args.epochs):
+        print(f"Epoch {epoch} started")
         wandb.log({"epoch": epoch})
         model.train()
         # train_sampler.set_epoch(epoch)
