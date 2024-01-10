@@ -110,6 +110,7 @@ def get_arguments():
     parser.add_argument("--datetime", type=str, default="")
     parser.add_argument("--exp_name", type=str, required=True)
 
+
     return parser
 
 
@@ -237,7 +238,7 @@ def main(args):
                 print(json.dumps(stats), file=stats_file)
                 last_logging = current_time
                 wandb.log(stats)
-        utils.checkpoint(args, epoch + 1, step, model, optimizer)
+        utils.checkpoint(args, epoch + 1, step, model, optimizer, name=args.arch)
 
         # evaluate
         if (epoch + 1) % args.eval_freq == 0:
