@@ -13,7 +13,7 @@ python main_vicregl.py \
 --min_scale_crops 0.08 \
 --max_scale_crops 1.0 \
 --alpha 0.75 \
---num-workers 10 \
+--num-workers 16 \
 --exp_name "vicregl_bs128_cov_coeff_10" \
 --data_path /data/AIML_rot_corrected \
 --log-tensors-interval 100 \
